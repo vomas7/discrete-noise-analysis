@@ -3,7 +3,14 @@ import geopandas as gpd
 from core.geom_transform import polygons_to_segments
 from core.stars_maker import make_noise_stars
 import matplotlib.pyplot as plt
-
+from core.reflection import make_noise_reflection
+from config import (
+    noise_limit,
+    point_interval,
+    stars_line_step,
+    noise_level_column,
+    building_level_column
+)
 
 def visual_gdf(layer1, layer2):
     # Визуализация
@@ -32,9 +39,6 @@ if __name__ == '__main__':
 
     streets = gpd.read_file('core/street_3857.gpkg')
     crs = streets.crs
-    noise_limit = 45
-    point_interval = 3
-    stars_line_step = 3
 
     noise_stars = make_noise_stars(
         street_layer=streets,
@@ -46,15 +50,25 @@ if __name__ == '__main__':
     buildings = gpd.read_file('core/Здания_3857.gpkg')
     building_segments = polygons_to_segments(buildings)
 
-    intersecting_noise_lines = gpd.sjoin(noise_stars, building_segments, how="inner",
-                                   predicate='intersects')
+    intersect_noise_lines = gpd.sjoin(noise_stars, building_segments, how="inner",
+                                      predicate='intersects')
     intersecting_building_segments = gpd.sjoin(building_segments, noise_stars, how="inner",
                                    predicate='intersects')
 
+    filtered_noise_lines = intersect_noise_lines[
+        intersect_noise_lines[noise_level_column] <= intersect_noise_lines[
+            building_level_column] * 3
+        ]
 
+    filtered_noise_lines.to_file('noise_line.gpkg')
+
+    make_noise_reflection(
+        noize=filtered_noise_lines,
+        barriers=intersecting_building_segments
+    )
 
 
     end_time = time.time()
     execution_time = end_time - start_time
     print(f"Время выполнения: {execution_time} секунд")
-    visual_gdf(intersecting_noise_lines, intersecting_building_segments)
+    # visual_gdf(intersect_noise_lines, intersecting_building_segments)

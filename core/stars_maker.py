@@ -2,6 +2,7 @@ import math
 import numpy as np
 from typing import Any
 import geopandas as gpd
+from config import noise_level_column
 from shapely.geometry import LineString, Point
 
 
@@ -76,7 +77,7 @@ def make_noise_star(
             star_lines.append(
                 {
                     'geometry': LineString([point, new_point]),
-                    'level': level,
+                    noise_level_column: level,
                     **params
                 }
             )
