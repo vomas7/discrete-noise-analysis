@@ -1,6 +1,9 @@
 import time
 import geopandas as gpd
-from core.geom_transform import polygons_to_segments
+from core.geom_transform import (
+    polygons_to_segments,
+    segmentation_of_barrier_by_floors
+)
 from core.stars_maker import make_noise_stars
 import matplotlib.pyplot as plt
 from core.reflection import make_noise_reflection
@@ -49,18 +52,29 @@ if __name__ == '__main__':
 
     buildings = gpd.read_file('core/Здания_3857.gpkg')
     building_segments = polygons_to_segments(buildings)
+    building_segments = segmentation_of_barrier_by_floors(building_segments)
 
-    intersect_noise_lines = gpd.sjoin(noise_stars, building_segments, how="inner",
-                                      predicate='intersects')
-    intersecting_building_segments = gpd.sjoin(building_segments, noise_stars, how="inner",
-                                   predicate='intersects')
+
+
+    intersect_noise_lines = gpd.sjoin(
+        noise_stars,
+        building_segments,
+        how="inner",
+        predicate='intersects'
+    ).drop_duplicates(subset='geometry')
+    intersecting_building_segments = gpd.sjoin(
+        building_segments,
+        noise_stars,
+        how="inner",
+        predicate='intersects'
+    ).drop_duplicates(subset=['geometry', building_level_column])
 
     filtered_noise_lines = intersect_noise_lines[
         intersect_noise_lines[noise_level_column] <= intersect_noise_lines[
             building_level_column] * 3
         ]
 
-    filtered_noise_lines.to_file('noise_line.gpkg')
+    # filtered_noise_lines.to_file('noise_line.gpkg')
 
     make_noise_reflection(
         noize=filtered_noise_lines,

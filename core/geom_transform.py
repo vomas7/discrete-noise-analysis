@@ -1,6 +1,7 @@
 import geopandas as gpd
-from typing import Literal, Any
+from typing import Literal
 from shapely.geometry import LineString
+from config import noise_segment_size, building_level_column
 
 
 def polygons_to_segments(gdf: gpd.GeoDataFrame):
@@ -38,6 +39,7 @@ def polygons_to_lines(gdf: gpd.GeoDataFrame):
 
 
 def split_line_into_segments(line):
+    line = line.segmentize(noise_segment_size)
     coords = list(line.coords)
     segments = [LineString([coords[i], coords[i + 1]]) for i in
                 range(len(coords) - 1)]
@@ -53,3 +55,19 @@ def check_geomtype(
         ]
 ) -> bool:
     return all(gdf['geometry'].geom_type == geomtype)
+
+
+def segmentation_of_barrier_by_floors(barriers: gpd.GeoDataFrame):
+    new_rows = []
+    for _, barrier in barriers.iterrows():
+        top_level = barrier[building_level_column]
+        level = 1
+        while level < top_level:
+            new_barrier = barrier.copy()
+            new_barrier[building_level_column] = level
+            new_rows.append(new_barrier)
+            level += 1
+    return gpd.pd.concat(
+        [barriers, gpd.GeoDataFrame(new_rows, crs=barriers.crs)],
+        ignore_index=True
+    )
