@@ -78,6 +78,7 @@ def make_noise_star(
                 {
                     'geometry': LineString([point, new_point]),
                     noise_level_column: level,
+                    'angle': angle,
                     **params
                 }
             )
