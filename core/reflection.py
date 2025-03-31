@@ -83,7 +83,7 @@ def find_near_line(line: LineString, target_lines: GeoDataFrame) -> Series:
 def get_line_reflect(noise: Series, barrier: Series, number_ref) -> Series | None:
     noise_geom = noise.geometry
     barrier_geom = barrier.geometry
-    penultimate_point = Point(noise.geometry.coords[-2])
+    last_noise_geom = Point(noise.geometry.coords[-1])
 
     intersection = noise_geom.intersection(barrier_geom)
 
@@ -98,43 +98,24 @@ def get_line_reflect(noise: Series, barrier: Series, number_ref) -> Series | Non
     if isinstance(intersection, MultiPoint):
         intersection = intersection.geoms[0]
 
-    dx = penultimate_point.x - intersection.x
-    dy = penultimate_point.y - intersection.y
+    x1, y1 = barrier_geom.coords[0]
+    x2, y2 = barrier_geom.coords[1]
 
-    directional_angle = degrees(atan2(dy, dx)) % 360
+    m = (y2 - y1) / (x2 - x1) if x2 != x1 else float('inf')
+    c = y1 - m * x1 if x2 != x1 else x1
 
-    line_reflect_coords = list(barrier_geom.coords)
-    dx_wall = line_reflect_coords[1][0] - line_reflect_coords[0][0]
-    dy_wall = line_reflect_coords[1][1] - line_reflect_coords[0][1]
-
-    d_angle_intersect = degrees(atan2(dy_wall, dx_wall)) % 360
-    if d_angle_intersect == 0:
-        d_angle_intersect = 1.57
-
-    normal_angle = (d_angle_intersect + 90) % 360
-
-    angle_diff = (directional_angle - normal_angle + 180) % 360 - 180 # Разница углов от -180 до 180
-    if angle_diff > 0: # Если падающая линия "слева" от нормали (против часовой стрелки)
-        normal_angle = (d_angle_intersect - 90) % 360 # Берем другую нормаль
-
-    if directional_angle < normal_angle:
-        normal_angle += 180
-
-
-    len_ost_line = LineString(
-        [intersection, noise_geom.coords[-1]]).length
-
-    angle_reflect = normal_angle - (directional_angle - normal_angle)
-
-    endpoint_x_reflect = intersection.x + len_ost_line * cos(
-        radians(angle_reflect))
-    endpoint_y_reflect = intersection.y + len_ost_line * sin(
-        radians(angle_reflect))
+    if m == float('inf'):
+        reflected_x = 2 * x1 - last_noise_geom.x
+        reflected_y = last_noise_geom.y
+    else:
+        d = (last_noise_geom.x + (last_noise_geom.y - c) * m) / (1 + m**2)
+        reflected_x = 2 * d - last_noise_geom.x
+        reflected_y = 2 * d * m - last_noise_geom.y + 2 * c
 
     noise_geom = LineString([
         *[Point(coord) for coord in noise_geom.coords[:-1]],
         intersection,
-        Point(endpoint_x_reflect, endpoint_y_reflect)
+        Point(reflected_x, reflected_y)
     ])
 
     attr = noise.to_dict()
@@ -147,11 +128,7 @@ def get_line_reflect(noise: Series, barrier: Series, number_ref) -> Series | Non
 
     reflected_noise_line = {
         'geometry': noise_geom,
-        'angle': angle_reflect,
-        'directional_angle': directional_angle,
-        'normal_angle': normal_angle,
         'number_ref': number_ref,
-        'd_angle_intersect': d_angle_intersect,
         **attr
     }
 
