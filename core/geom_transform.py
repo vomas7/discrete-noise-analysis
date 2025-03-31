@@ -1,10 +1,11 @@
-import geopandas as gpd
+from pandas import concat
 from typing import Literal
+from geopandas import GeoDataFrame
 from shapely.geometry import LineString
 from config import noise_segment_size, building_level_column
 
 
-def polygons_to_segments(gdf: gpd.GeoDataFrame):
+def polygons_to_segments(gdf: GeoDataFrame):
     if check_geomtype(gdf, 'MultiPolygon'):
         gdf = gdf.explode()
     if not check_geomtype(gdf, 'Polygon'):
@@ -13,7 +14,7 @@ def polygons_to_segments(gdf: gpd.GeoDataFrame):
     return lines_to_segments(lines)
 
 
-def lines_to_segments(gdf: gpd.GeoDataFrame):
+def lines_to_segments(gdf: GeoDataFrame):
     if check_geomtype(gdf, 'MultiLineString'):
         gdf = gdf.explode()
     if not check_geomtype(gdf, 'LineString'):
@@ -28,11 +29,11 @@ def lines_to_segments(gdf: gpd.GeoDataFrame):
                 {'geometry': segment,
                  **line_dict}
             )
-    return gpd.GeoDataFrame(all_segments).set_crs(gdf.crs)
+    return GeoDataFrame(all_segments).set_crs(gdf.crs)
 
 
-def polygons_to_lines(gdf: gpd.GeoDataFrame):
-    return gpd.GeoDataFrame(
+def polygons_to_lines(gdf: GeoDataFrame):
+    return GeoDataFrame(
         gdf.drop(columns='geometry'),
         geometry=gdf.boundary
     ).set_crs(gdf.crs)
@@ -47,7 +48,7 @@ def split_line_into_segments(line):
 
 
 def check_geomtype(
-        gdf: gpd.GeoDataFrame,
+        gdf: GeoDataFrame,
         geomtype: Literal[
             'Point', 'LineString',
             'Polygon', 'MultiPoint',
@@ -57,7 +58,7 @@ def check_geomtype(
     return all(gdf['geometry'].geom_type == geomtype)
 
 
-def segmentation_of_barrier_by_floors(barriers: gpd.GeoDataFrame):
+def segmentation_of_barrier_by_floors(barriers: GeoDataFrame):
     new_rows = []
     for _, barrier in barriers.iterrows():
         top_level = barrier[building_level_column]
@@ -67,7 +68,10 @@ def segmentation_of_barrier_by_floors(barriers: gpd.GeoDataFrame):
             new_barrier[building_level_column] = level
             new_rows.append(new_barrier)
             level += 1
-    return gpd.pd.concat(
-        [barriers, gpd.GeoDataFrame(new_rows, crs=barriers.crs)],
+    return GeoDataFrame(concat(
+        [
+            barriers,
+            GeoDataFrame(new_rows, geometry='geometry', crs=barriers.crs)
+        ],
         ignore_index=True
-    )
+    ), geometry='geometry', crs=barriers.crs)

@@ -49,25 +49,24 @@ if __name__ == '__main__':
         noise_limit=noise_limit,
         point_interval=point_interval
     )
-    noise_stars.to_file('noise_stars.gpkg', driver='GPKG')
+    # noise_stars.to_file('noise_stars.gpkg', driver='GPKG')
     buildings = gpd.read_file('core/Здания_3857.gpkg')
     building_segments = polygons_to_segments(buildings)
     building_segments = segmentation_of_barrier_by_floors(building_segments)
 
-
-
+    building_segments.to_file('building_segments.gpkg', driver='GPKG')
     intersect_noise_lines = gpd.sjoin(
         noise_stars,
         building_segments,
         how="inner",
         predicate='intersects'
     ).drop_duplicates(subset='geometry')
-    intersecting_building_segments = gpd.sjoin(
-        building_segments,
-        noise_stars,
-        how="inner",
-        predicate='intersects'
-    ).drop_duplicates(subset=['geometry', building_level_column])
+    # intersecting_building_segments = gpd.sjoin(
+    #     building_segments,
+    #     noise_stars,
+    #     how="inner",
+    #     predicate='intersects'
+    # ).drop_duplicates(subset=['geometry', building_level_column])
     # intersect_noise_lines.to_file('intersect_noise_lines.gpkg', driver='GPKG')
     # filtered_noise_lines = intersect_noise_lines[
     #     intersect_noise_lines[noise_level_column] <= intersect_noise_lines[
@@ -78,7 +77,7 @@ if __name__ == '__main__':
 
     make_noise_reflection(
         noize=intersect_noise_lines,
-        barriers=intersecting_building_segments
+        barriers=building_segments
     )
 
 

@@ -3,7 +3,8 @@ from geopandas import GeoDataFrame, sjoin
 from core.geom_transform import check_geomtype
 from math import degrees, atan2, radians, cos, sin, log10
 from config import building_level_column, noise_level_column
-from shapely.geometry import Point, LineString, MultiPoint, GeometryCollection, MultiLineString
+from shapely.geometry import Point, LineString, MultiPoint, GeometryCollection, \
+    MultiLineString
 
 
 def make_noise_reflection(noize: GeoDataFrame, barriers: GeoDataFrame):
@@ -14,33 +15,44 @@ def make_noise_reflection(noize: GeoDataFrame, barriers: GeoDataFrame):
     for _, noize_line in noize.iterrows():
         i = 0
         intersect_barrier = get_intersect_barrier(noize_line, barriers,
-                                                      noize.crs)
+                                                  noize.crs)
         if intersect_barrier.empty:
             continue
-        while not intersect_barrier.empty and i < 3:
-            i += 1
-            intersect_barrier = get_intersect_barrier(noize_line, barriers,
-                                                      noize.crs)
+
+        closest_line = find_near_line(noize_line.geometry,
+                                      intersect_barrier)
+
+        while closest_line is not None and i < 4:
             if intersect_barrier.empty:
                 break
-            closest_line = find_near_line(noize_line.geometry, intersect_barrier)
 
-            noize_line, barrier = get_line_reflect(noize_line, closest_line, i)
-            # if not noize_line:
-            #     print('линия не создалась')
-            #     break
-            # else:
-            #     print('линия создалась')
+            if closest_line is None:
+                break
+
+            noize_line, barrier = get_line_reflect(noize_line, closest_line)
+
+            if barrier is None:
+                break
 
             inter_barriers.append(barrier)
 
+            intersect_barrier = get_intersect_barrier(noize_line, barriers,
+                                                      noize.crs)
+            closest_line = find_near_line(noize_line.geometry,
+                                          intersect_barrier)
+            i += 1
 
         lines_reflect.append(noize_line)
-    GeoDataFrame(lines_reflect, crs=noize.crs).to_file('reflect.gpkg', driver='GPKG')
-    inter_barriers = GeoDataFrame(inter_barriers, crs=barriers.crs)
-    result = inter_barriers.groupby(['geometry', 'et'], as_index=False).agg(maximum=('noise_level', 'max'))
+    GeoDataFrame(lines_reflect, crs=noize.crs).to_file('reflect.gpkg',
+                                                       driver='GPKG')
+    inter_barriers = GeoDataFrame(
+        inter_barriers, geometry='geometry', crs=barriers.crs
+    )
+    result = inter_barriers.groupby(['geometry', 'et'], as_index=False).agg(
+        maximum=('noise_level', 'max'))
     result_geo = GeoDataFrame(result, geometry='geometry', crs=barriers.crs)
     result_geo.to_file('barrier_noise.gpkg', driver='GPKG')
+
 
 def get_intersect_barrier(
         noize_line: Series,
@@ -51,7 +63,7 @@ def get_intersect_barrier(
     ).set_crs(crs)
 
     filter_barriers = barriers[
-        barriers[building_level_column] * 3 == noize_line[noise_level_column]
+        barriers[building_level_column] == noize_line[noise_level_column] / 3
         ]
     if 'index_right' in gdf_noize_line.columns:
         gdf_noize_line = gdf_noize_line.drop(columns=['index_right'])
@@ -73,6 +85,9 @@ def find_near_line(line: LineString, target_lines: GeoDataFrame) -> Series:
         intersection = line.intersection(target_line.geometry)
         distance = first_noise_point.distance(intersection)
 
+        if distance < 0.1:
+            continue
+
         if distance < min_distance:
             min_distance = distance
             closest_line = target_line
@@ -80,23 +95,20 @@ def find_near_line(line: LineString, target_lines: GeoDataFrame) -> Series:
     return closest_line
 
 
-def get_line_reflect(noise: Series, barrier: Series, number_ref) -> Series | None:
+def get_line_reflect(noise: Series, barrier: Series) -> Series | None:
     noise_geom = noise.geometry
     barrier_geom = barrier.geometry
+    last_line = LineString(
+        [Point(noise_geom.coords[-2]), Point(noise_geom.coords[-1])]
+    )
     last_noise_geom = Point(noise.geometry.coords[-1])
 
-    intersection = noise_geom.intersection(barrier_geom)
+    intersection = last_line.intersection(barrier_geom)
 
     if intersection.is_empty:
-        return None, None
-    if isinstance(intersection, GeometryCollection):
-        intersection = intersection.geoms[0]
-    if isinstance(intersection, MultiLineString):
-        intersection = intersection.geoms[0]
-    if isinstance(intersection, LineString):
-        intersection = intersection.centroid
-    if isinstance(intersection, MultiPoint):
-        intersection = intersection.geoms[0]
+        return noise, None
+    if not isinstance(intersection, Point):
+        raise ValueError('не тот тип геометрии вернулся из пересечения')
 
     x1, y1 = barrier_geom.coords[0]
     x2, y2 = barrier_geom.coords[1]
@@ -108,7 +120,7 @@ def get_line_reflect(noise: Series, barrier: Series, number_ref) -> Series | Non
         reflected_x = 2 * x1 - last_noise_geom.x
         reflected_y = last_noise_geom.y
     else:
-        d = (last_noise_geom.x + (last_noise_geom.y - c) * m) / (1 + m**2)
+        d = (last_noise_geom.x + (last_noise_geom.y - c) * m) / (1 + m ** 2)
         reflected_x = 2 * d - last_noise_geom.x
         reflected_y = 2 * d * m - last_noise_geom.y + 2 * c
 
@@ -123,12 +135,12 @@ def get_line_reflect(noise: Series, barrier: Series, number_ref) -> Series | Non
 
     len_initial_line = LineString([noise_geom.coords[-2], intersection]).length
 
-
-    noise_level = noise['start_noise'] - (10 * log10((len_initial_line ** 2 + noise["level"] ** 2) ** 0.5))
+    noise_level = noise['start_noise'] - (
+            10 * log10((len_initial_line ** 2 + noise["level"] ** 2) ** 0.5)
+    )
 
     reflected_noise_line = {
         'geometry': noise_geom,
-        'number_ref': number_ref,
         **attr
     }
 
