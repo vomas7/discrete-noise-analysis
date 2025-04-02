@@ -1,9 +1,9 @@
 import math
 import numpy as np
-from typing import Any, List
 import geopandas as gpd
-from shapely.geometry import LineString, Point
+from typing import List
 from multiprocessing import Pool, cpu_count
+from shapely.geometry import LineString, Point
 from config import noise_level_column, street_column_noise
 
 
