@@ -55,7 +55,7 @@ def make_points_on_line_with_attr(
         linestring: LineString, interval: int, **params
 ) -> List[dict]:
     length = linestring.length
-    distances = np.arange(0, length, interval)
+    distances = np.arange(3, length, interval)
     return [{
         'geometry': linestring.interpolate(distance),
         **params
