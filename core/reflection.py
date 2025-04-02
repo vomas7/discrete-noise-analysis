@@ -1,152 +1,205 @@
-from pandas.core.series import Series
-from geopandas import GeoDataFrame, sjoin
+from tqdm import tqdm
+from math import log10
+from os import cpu_count
+from pandas import Series
+from multiprocessing import Pool
+from geopandas import GeoDataFrame
+from pyproj import Geod, Transformer
+from typing import Tuple, List, Dict, Optional
+from shapely.geometry import Point, LineString
 from core.geom_transform import check_geomtype
-from math import degrees, atan2, radians, cos, sin, log10
-from config import building_level_column, noise_level_column
-from shapely.geometry import Point, LineString, MultiPoint, GeometryCollection, \
-    MultiLineString
+
+from config import (
+    noise_level_column,
+    building_level_column,
+    amount_of_reflections
+)
+
+# Constants
+MAX_WORKERS = min(cpu_count() or 4, 32)
+geod = Geod(ellps='WGS84')
+transformer_3857_to_4326 = Transformer.from_crs("EPSG:3857", "EPSG:4326",
+                                                always_xy=True)
 
 
-def make_noise_reflection(noize: GeoDataFrame, barriers: GeoDataFrame):
+def make_noise_reflection(noize: GeoDataFrame, barriers: GeoDataFrame) -> None:
+    """Main function to process noise reflections with parallel processing"""
+    print(f'🚀 Processing with {MAX_WORKERS} cores')
+
+    chunk_size = max(len(noize) // (MAX_WORKERS * 2), 1)
+
+    chunks = [
+        noize.iloc[i:i + chunk_size]
+        for i in range(0, len(noize), chunk_size)
+    ]
+    args = [(chunk, barriers) for chunk in chunks]
+
+    with Pool(processes=MAX_WORKERS) as pool:
+        with tqdm(total=len(chunks), desc="Processing chunks",
+                  unit="chunk") as pbar:
+            results = []
+            for chunk_result in pool.imap_unordered(process_chunk, args):
+                results.append(chunk_result)
+                pbar.update(1)
+
+    barriers_results = []
+    for chunk_result in results:
+        barriers_results.extend(chunk_result)
+
+    if barriers_results:
+        save_results(
+            barriers_results=barriers_results,
+            barriers_crs=barriers.crs
+        )
+    print("✅ Done!")
+
+
+def save_results(barriers_results: List[Dict], barriers_crs: str) -> None:
+    """Save processing results to GeoPackage files"""
+    print("💾 Saving results...")
+
+    # Save barriers with noise data
+    barriers_gdf = GeoDataFrame(
+        barriers_results,
+        geometry='geometry',
+        crs=barriers_crs
+    )
+
+    # Save aggregated results
+    result = barriers_gdf.groupby(['geometry', 'et'], as_index=False).agg(
+        maximum=('noise_level', 'max')
+    )
+    GeoDataFrame(result, crs=barriers_crs).to_file('barrier_noise.gpkg',
+                                                   driver='GPKG')
+
+
+def process_chunk(args: Tuple[GeoDataFrame, GeoDataFrame]) -> List[Dict]:
+    """Process a chunk of noise lines with barriers"""
+    chunk, barriers = args
+    barriers_results = []
+
+    for _, row in chunk.iterrows():
+        barriers_list = process_noize_line(row, barriers)
+        barriers_results.extend(
+            [barrier.to_dict() for barrier in barriers_list])
+
+    return barriers_results
+
+
+def process_noize_line(noize_line: Series, barriers: GeoDataFrame) -> \
+        List[Series]:
+    """Process single noise line with reflections"""
     inter_barriers = []
-    lines_reflect = []
-    print('создаю отражения')
+    intersect_barrier = get_intersect_barrier(noize_line, barriers)
 
-    for _, noize_line in noize.iterrows():
-        i = 0
-        intersect_barrier = get_intersect_barrier(noize_line, barriers,
-                                                  noize.crs)
-        if intersect_barrier.empty:
-            continue
+    if intersect_barrier.empty:
+        return inter_barriers
 
-        closest_line = find_near_line(noize_line.geometry,
-                                      intersect_barrier)
+    closest_line = find_near_line(noize_line.geometry, intersect_barrier)
 
-        while closest_line is not None and i < 4:
-            if intersect_barrier.empty:
-                break
+    for _ in range(amount_of_reflections):
+        if closest_line is None or intersect_barrier.empty:
+            break
 
-            if closest_line is None:
-                break
+        noize_line, barrier = get_line_reflect(noize_line, closest_line)
+        if barrier is None:
+            break
 
-            noize_line, barrier = get_line_reflect(noize_line, closest_line)
+        inter_barriers.append(barrier)
+        intersect_barrier = get_intersect_barrier(noize_line, barriers)
+        closest_line = find_near_line(noize_line.geometry, intersect_barrier)
 
-            if barrier is None:
-                break
-
-            inter_barriers.append(barrier)
-
-            intersect_barrier = get_intersect_barrier(noize_line, barriers,
-                                                      noize.crs)
-            closest_line = find_near_line(noize_line.geometry,
-                                          intersect_barrier)
-            i += 1
-
-        lines_reflect.append(noize_line)
-    GeoDataFrame(lines_reflect, crs=noize.crs).to_file('reflect.gpkg',
-                                                       driver='GPKG')
-    inter_barriers = GeoDataFrame(
-        inter_barriers, geometry='geometry', crs=barriers.crs
-    )
-    result = inter_barriers.groupby(['geometry', 'et'], as_index=False).agg(
-        maximum=('noise_level', 'max'))
-    result_geo = GeoDataFrame(result, geometry='geometry', crs=barriers.crs)
-    result_geo.to_file('barrier_noise.gpkg', driver='GPKG')
+    return inter_barriers
 
 
-def get_intersect_barrier(
-        noize_line: Series,
-        barriers: GeoDataFrame, crs
-) -> GeoDataFrame:
-    gdf_noize_line = GeoDataFrame(
-        geometry=[noize_line.geometry]
-    ).set_crs(crs)
+def get_line_reflect(noise: Series, barrier: Series) -> Tuple[
+    Optional[Series], Optional[Series]]:
+    """Calculate noise reflection and return updated noise line and barrier"""
+    noise_geom = noise.geometry
+    barrier_geom = barrier.geometry
 
-    filter_barriers = barriers[
-        barriers[building_level_column] == noize_line[noise_level_column] / 3
-        ]
-    if 'index_right' in gdf_noize_line.columns:
-        gdf_noize_line = gdf_noize_line.drop(columns=['index_right'])
-    if 'index_right' in filter_barriers.columns:
-        filter_barriers = filter_barriers.drop(columns=['index_right'])
-    return sjoin(
-        filter_barriers, gdf_noize_line, how="inner", predicate='intersects'
-    )
+    last_segment = LineString([noise_geom.coords[-2], noise_geom.coords[-1]])
+    intersection = last_segment.intersection(barrier_geom)
+
+    if intersection.is_empty or not isinstance(intersection, Point):
+        return noise, None
+
+    # Calculate reflection
+    x1, y1 = barrier_geom.coords[0]
+    x2, y2 = barrier_geom.coords[1]
+    dx, dy = x2 - x1, y2 - y1
+
+    if dx == 0:  # Vertical line
+        reflected_x = 2 * x1 - noise_geom.coords[-1][0]
+        reflected_y = noise_geom.coords[-1][1]
+    else:
+        m = dy / dx
+        c = y1 - m * x1
+        x, y = noise_geom.coords[-1]
+        d = (x + (y - c) * m) / (1 + m ** 2)
+        reflected_x = 2 * d - x
+        reflected_y = 2 * d * m - y + 2 * c
+
+    new_coords = [*noise_geom.coords[:-1], (intersection.x, intersection.y),
+                  (reflected_x, reflected_y)]
+    len_initial = calculate_geodesic_length(new_coords[:-1])
+
+    noise_level = noise['start_noise'] - (
+            10 * log10((len_initial ** 2 + noise["level"] ** 2) ** 0.5))
+
+    reflected_noise = noise.copy()
+    reflected_noise['geometry'] = LineString(new_coords)
+
+    reflected_barrier = barrier.copy()
+    reflected_barrier['noise_level'] = noise_level
+
+    return reflected_noise, reflected_barrier
 
 
-def find_near_line(line: LineString, target_lines: GeoDataFrame) -> Series:
+def calculate_geodesic_length(coords: List[Tuple[float, float]]) -> float:
+    """Calculate geodesic length for coordinates in EPSG:3857"""
+    total_length = 0.0
+    for i in range(len(coords) - 1):
+        lon1, lat1 = transformer_3857_to_4326.transform(*coords[i])
+        lon2, lat2 = transformer_3857_to_4326.transform(*coords[i + 1])
+        _, _, dist = geod.inv(lon1, lat1, lon2, lat2)
+        total_length += abs(dist)
+    return total_length
+
+
+def find_near_line(line: LineString, target_lines: GeoDataFrame) -> Optional[
+    Series]:
+    """Find the nearest line from target lines"""
     if not check_geomtype(target_lines, 'LineString'):
-        raise ValueError('не верный тип геометрии ожидался LineString')
+        raise ValueError('Expected LineString geometry type')
+
     first_noise_point = Point(line.coords[-2])
-    closest_line = None
     min_distance = float('inf')
+    closest_line = None
 
     for _, target_line in target_lines.iterrows():
         intersection = line.intersection(target_line.geometry)
-        distance = first_noise_point.distance(intersection)
-
-        if distance < 0.1:
+        if intersection.is_empty:
             continue
 
-        if distance < min_distance:
+        distance = first_noise_point.distance(intersection)
+        if 0.1 <= distance < min_distance:
             min_distance = distance
             closest_line = target_line
 
     return closest_line
 
 
-def get_line_reflect(noise: Series, barrier: Series) -> Series | None:
-    noise_geom = noise.geometry
-    barrier_geom = barrier.geometry
-    last_line = LineString(
-        [Point(noise_geom.coords[-2]), Point(noise_geom.coords[-1])]
-    )
-    last_noise_geom = Point(noise.geometry.coords[-1])
+def get_intersect_barrier(noize_line: Series, barriers: GeoDataFrame) -> GeoDataFrame:
+    """Find intersecting barriers with filtering"""
+    mask = barriers[building_level_column] == (
+            noize_line[noise_level_column] / 3)
+    filtered = barriers[mask]
 
-    intersection = last_line.intersection(barrier_geom)
+    if filtered.empty:
+        return filtered
 
-    if intersection.is_empty:
-        return noise, None
-    if not isinstance(intersection, Point):
-        raise ValueError('не тот тип геометрии вернулся из пересечения')
-
-    x1, y1 = barrier_geom.coords[0]
-    x2, y2 = barrier_geom.coords[1]
-
-    m = (y2 - y1) / (x2 - x1) if x2 != x1 else float('inf')
-    c = y1 - m * x1 if x2 != x1 else x1
-
-    if m == float('inf'):
-        reflected_x = 2 * x1 - last_noise_geom.x
-        reflected_y = last_noise_geom.y
-    else:
-        d = (last_noise_geom.x + (last_noise_geom.y - c) * m) / (1 + m ** 2)
-        reflected_x = 2 * d - last_noise_geom.x
-        reflected_y = 2 * d * m - last_noise_geom.y + 2 * c
-
-    noise_geom = LineString([
-        *[Point(coord) for coord in noise_geom.coords[:-1]],
-        intersection,
-        Point(reflected_x, reflected_y)
-    ])
-
-    attr = noise.to_dict()
-    attr.pop('geometry')
-
-    len_initial_line = LineString([noise_geom.coords[-2], intersection]).length
-
-    noise_level = noise['start_noise'] - (
-            10 * log10((len_initial_line ** 2 + noise["level"] ** 2) ** 0.5)
-    )
-
-    reflected_noise_line = {
-        'geometry': noise_geom,
-        **attr
-    }
-
-    barrier = {
-        'noise_level': noise_level,
-        **barrier.to_dict()
-    }
-
-    return Series(reflected_noise_line), Series(barrier)
+    geom = noize_line.geometry
+    possible_matches_index = list(filtered.sindex.intersection(geom.bounds))
+    possible_matches = filtered.iloc[possible_matches_index]
+    return possible_matches[possible_matches.intersects(geom)]

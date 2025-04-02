@@ -4,8 +4,8 @@ from core.geom_transform import (
     polygons_to_segments,
     segmentation_of_barrier_by_floors
 )
-from core.stars_maker import make_noise_stars
 import matplotlib.pyplot as plt
+from core.stars_maker import make_noise_stars
 from core.reflection import make_noise_reflection
 from config import (
     noise_limit,
@@ -54,7 +54,7 @@ if __name__ == '__main__':
     building_segments = polygons_to_segments(buildings)
     building_segments = segmentation_of_barrier_by_floors(building_segments)
 
-    building_segments.to_file('building_segments.gpkg', driver='GPKG')
+    # building_segments.to_file('building_segments.gpkg', driver='GPKG')
     intersect_noise_lines = gpd.sjoin(
         noise_stars,
         building_segments,

@@ -2,8 +2,8 @@ import math
 import numpy as np
 from typing import Any
 import geopandas as gpd
-from config import noise_level_column
 from shapely.geometry import LineString, Point
+from config import noise_level_column, street_column_noise
 
 
 def make_noise_stars(
@@ -17,7 +17,7 @@ def make_noise_stars(
 
     for _, street in street_layer.iterrows():
         line = street.geometry
-        noise = int(street['noize_day_cars'])
+        noise = int(street[street_column_noise])
         noise_distance = 10 ** ((noise - noise_limit) / 10)
         noise_points += make_points_on_line_with_attr(
             linestring=line,
