@@ -112,8 +112,10 @@ def process_noize_line(noize_line: Series, barriers: GeoDataFrame) -> \
     return inter_barriers
 
 
-def get_line_reflect(noise: Series, barrier: Series) -> Tuple[
-    Optional[Series], Optional[Series]]:
+def get_line_reflect(
+        noise: Series,
+        barrier: Series
+) -> Tuple[Optional[Series], Optional[Series]]:
     """Calculate noise reflection and return updated noise line and barrier"""
     noise_geom = noise.geometry
     barrier_geom = barrier.geometry
@@ -167,8 +169,10 @@ def calculate_geodesic_length(coords: List[Tuple[float, float]]) -> float:
     return total_length
 
 
-def find_near_line(line: LineString, target_lines: GeoDataFrame) -> Optional[
-    Series]:
+def find_near_line(
+        line: LineString,
+        target_lines: GeoDataFrame
+) -> Optional[Series]:
     """Find the nearest line from target lines"""
     if not check_geomtype(target_lines, 'LineString'):
         raise ValueError('Expected LineString geometry type')
@@ -190,7 +194,8 @@ def find_near_line(line: LineString, target_lines: GeoDataFrame) -> Optional[
     return closest_line
 
 
-def get_intersect_barrier(noize_line: Series, barriers: GeoDataFrame) -> GeoDataFrame:
+def get_intersect_barrier(noize_line: Series,
+                          barriers: GeoDataFrame) -> GeoDataFrame:
     """Find intersecting barriers with filtering"""
     mask = barriers[building_level_column] == (
             noize_line[noise_level_column] / 3)
