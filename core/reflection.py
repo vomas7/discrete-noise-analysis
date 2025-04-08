@@ -7,19 +7,22 @@ from geopandas import GeoDataFrame
 from pyproj import Geod, Transformer
 from typing import Tuple, List, Dict, Optional
 from shapely.geometry import Point, LineString
-from core.geom_transform import check_geomtype
 
+from core.geom_transform import check_geomtype
 from config import (
+    base_crs,
+    geometry_column,
     noise_level_column,
     building_level_column,
-    amount_of_reflections
+    amount_of_reflections,
+    barrier_noise_level_column
 )
 
 # Constants
 MAX_WORKERS = min(cpu_count() or 4, 32)
-geod = Geod(ellps='WGS84')
-transformer_3857_to_4326 = Transformer.from_crs(
-    crs_from="EPSG:3857",
+geoid = Geod(ellps='WGS84')
+transformer = Transformer.from_crs(
+    crs_from=f"EPSG:{base_crs}",
     crs_to="EPSG:4326",
     always_xy=True
 )
@@ -30,6 +33,7 @@ def make_noise_reflection(
         barriers: GeoDataFrame
 ) -> Tuple[GeoDataFrame, GeoDataFrame]:
     """Main function to process noise reflections with parallel processing"""
+    print('make noise reflection')
     print(f'🚀 Processing with {MAX_WORKERS} cores')
 
     chunk_size = max(len(noize) // (MAX_WORKERS * 2), 1)
@@ -39,7 +43,7 @@ def make_noise_reflection(
     ]
     args = [(chunk, barriers) for chunk in chunks]
 
-    with Pool(processes=MAX_WORKERS) as pool:
+    with Pool(processes=MAX_WORKERS - 4) as pool:
         with tqdm(total=len(chunks), desc="Processing chunks",
                   unit="chunk") as pbar:
             results = []
@@ -61,8 +65,8 @@ def make_noise_reflection(
     if barriers_results:
         barriers_gdf = GeoDataFrame(barriers_results, crs=barriers.crs)
         result = barriers_gdf.groupby(
-            ['geometry', 'et'], as_index=False).agg(
-            maximum=('noise_level', 'max'))
+            [geometry_column, building_level_column], as_index=False).agg(
+            noise_level=(barrier_noise_level_column, 'max'))
         barriers_gdf = GeoDataFrame(result, crs=barriers.crs)
     else:
         barriers_gdf = GeoDataFrame(geometry=[], crs=barriers.crs)
@@ -152,13 +156,14 @@ def get_line_reflect(
     len_initial = calculate_geodesic_length(new_coords[:-1])
 
     noise_level = noise['start_noise'] - (
-            10 * log10((len_initial ** 2 + noise["level"] ** 2) ** 0.5))
+        10 * log10((len_initial ** 2 + noise[noise_level_column] ** 2) ** 0.5)
+    )
 
     reflected_noise = noise.copy()
-    reflected_noise['geometry'] = LineString(new_coords)
+    reflected_noise[geometry_column] = LineString(new_coords)
 
     reflected_barrier = barrier.copy()
-    reflected_barrier['noise_level'] = noise_level
+    reflected_barrier[barrier_noise_level_column] = noise_level
 
     return reflected_noise, reflected_barrier
 
@@ -167,9 +172,9 @@ def calculate_geodesic_length(coords: List[Tuple[float, float]]) -> float:
     """Calculate geodesic length for coordinates in EPSG:3857"""
     total_length = 0.0
     for i in range(len(coords) - 1):
-        lon1, lat1 = transformer_3857_to_4326.transform(*coords[i])
-        lon2, lat2 = transformer_3857_to_4326.transform(*coords[i + 1])
-        _, _, dist = geod.inv(lon1, lat1, lon2, lat2)
+        lon1, lat1 = transformer.transform(*coords[i])
+        lon2, lat2 = transformer.transform(*coords[i + 1])
+        _, _, dist = geoid.inv(lon1, lat1, lon2, lat2)
         total_length += abs(dist)
     return total_length
 
@@ -201,10 +206,11 @@ def find_near_line(
 
 def get_intersect_barrier(noize_line: Series,
                           barriers: GeoDataFrame) -> GeoDataFrame:
-    """Find intersecting barriers with filtering"""
-    mask = barriers[building_level_column] == (
-            noize_line[noise_level_column] / 3)
-    filtered = barriers[mask]
+    """Find intersecting barriers with filtering by level."""
+
+    level_mask = (barriers[building_level_column] == (
+                noize_line[noise_level_column] / 3))
+    filtered = barriers[level_mask]
 
     if filtered.empty:
         return filtered

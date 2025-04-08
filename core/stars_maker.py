@@ -1,10 +1,11 @@
 import math
 import numpy as np
+from tqdm import tqdm
 import geopandas as gpd
 from typing import List
 from multiprocessing import Pool, cpu_count
 from shapely.geometry import LineString, Point
-from config import noise_level_column, street_column_noise
+from config import noise_level_column, street_column_noise, geometry_column
 
 
 def make_noise_stars(
@@ -15,9 +16,10 @@ def make_noise_stars(
 ) -> gpd.GeoDataFrame:
     crs = street_layer.crs
 
-    # Первый этап: создание точек шума
     noise_points = []
-    for _, street in street_layer.iterrows():
+    for _, street in tqdm(street_layer.iterrows(),
+                          total=len(street_layer),
+                          desc="Creating noise points"):
         line = street.geometry
         noise = int(street[street_column_noise])
         noise_distance = 10 ** ((noise - noise_limit) / 10)
@@ -28,21 +30,23 @@ def make_noise_stars(
             noise_distance=noise_distance
         )
 
-    # Второй этап: создание звезд шума (мультипроцессорная обработка)
     with Pool(cpu_count()) as pool:
-        star_args = [(point['geometry'],
+        star_args = [(point[geometry_column],
                       point['noise_distance'],
                       stars_line_step,
                       point['noise'])
                      for point in noise_points]
-        noise_stars = pool.starmap(make_noise_star_wrapper, star_args)
+
+        noise_stars = list(tqdm(pool.imap(make_noise_star_wrapper, star_args),
+                                total=len(star_args),
+                                desc="Generating noise stars"))
 
     noise_stars = [item for sublist in noise_stars for item in sublist]
     return gpd.GeoDataFrame(noise_stars).set_crs(crs)
 
 
-def make_noise_star_wrapper(point, distance, step, noise):
-    """Обертка для функции make_noise_star для starmap"""
+def make_noise_star_wrapper(args):
+    point, distance, step, noise = args
     return make_noise_star(
         point=point,
         distance_normal=distance,
@@ -57,7 +61,7 @@ def make_points_on_line_with_attr(
     length = linestring.length
     distances = np.arange(3, length, interval)
     return [{
-        'geometry': linestring.interpolate(distance),
+        geometry_column: linestring.interpolate(distance),
         **params
     } for distance in distances]
 
@@ -89,7 +93,7 @@ def make_noise_star(
                 angle_degrees=angle
             )
             star_lines.append({
-                'geometry': LineString([point, new_point]),
+                geometry_column: LineString([point, new_point]),
                 noise_level_column: level,
                 'angle': angle,
                 **params
