@@ -123,6 +123,7 @@ def noise_maker(count_streets_update: int):
         )
     i = 0
     for _, street in streets.iterrows():
+        print('-----------------------------------')
         street_id = int(street['id'])
         print(street['name'], street_id)
         street = gpd.GeoDataFrame(
@@ -133,10 +134,12 @@ def noise_maker(count_streets_update: int):
         create_noise(street, buildings)
         mark_a_street_as_processed(street_id)
         delete_duplicates_barriers()
+        print('-----------------------------------')
         i += 1
+        print(f'готово {i} из {count_streets_update}')
         if i == count_streets_update:
             break
-
+    print('готово')
 
 if __name__ == '__main__':
     noise_maker(1)
