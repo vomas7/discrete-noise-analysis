@@ -28,7 +28,7 @@ from config import (
 )
 
 
-def main(streets: gpd.GeoDataFrame, buildings: gpd.GeoDataFrame):
+def create_noise(streets: gpd.GeoDataFrame, buildings: gpd.GeoDataFrame):
     start_time = time.time()
 
     noise_stars = make_noise_stars(
@@ -105,7 +105,7 @@ def main(streets: gpd.GeoDataFrame, buildings: gpd.GeoDataFrame):
     print(f"Время выполнения: {execution_time} секунд")
 
 
-if __name__ == '__main__':
+def noise_maker(count_streets_update: int):
     streets = gpd.read_postgis(
         con=engine,
         crs=base_crs,
@@ -113,7 +113,7 @@ if __name__ == '__main__':
         sql=f'''SELECT * FROM {schema}.{street_table_name} WHERE "highway" IN 
         ('living_street', 'trunk', 'trunk_link', 'primary', 'primary_link', 
         'secondary', 'secondary_link', 'tertiary', 'tertiary_link', 
-        'unclassified', 'residential') AND id = 1'''
+        'unclassified', 'residential') AND finished is not True'''
         )
     buildings = gpd.read_postgis(
         con=engine,
@@ -130,9 +130,13 @@ if __name__ == '__main__':
             crs=streets.crs,
             geometry=geometry_column)
 
-        main(street, buildings)
+        create_noise(street, buildings)
         mark_a_street_as_processed(street_id)
         delete_duplicates_barriers()
         i += 1
-        if i == 1:
+        if i == count_streets_update:
             break
+
+
+if __name__ == '__main__':
+    noise_maker(1)

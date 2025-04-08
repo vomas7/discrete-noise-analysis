@@ -1,3 +1,5 @@
+import os
+from dotenv import load_dotenv
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine, Table, MetaData, update, text
 from config import (
@@ -9,8 +11,12 @@ from config import (
     barrier_noise_table_name,
     barrier_noise_level_column
 )
+
+load_dotenv()
+DB_CONN = os.getenv('DB_CONN')
+
 engine = create_engine(
-    f'postgresql://ilya:UiojK(*)1@192.168.1.99:5432/{db_name}'
+    f'{DB_CONN}/{db_name}'
 )
 
 
