@@ -140,8 +140,8 @@ def _process_barrier_chunk(chunk):
         if not math.isnan(barrier[building_level_column]):
             top_level = int(barrier[building_level_column])
         else:
-            top_level = 0  # or some other default
-        for level in range(1, top_level):
+            top_level = 1
+        for level in range(1, top_level + 1):
             new_barrier = barrier.copy()
             new_barrier[building_level_column] = level
             new_rows.append(new_barrier)
