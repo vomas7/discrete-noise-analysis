@@ -17,7 +17,7 @@ RUN	cd discrete-noise-analysis && git checkout main || { echo 'Checkout failed';
 RUN	cd discrete-noise-analysis && git pull origin main || { echo 'Pull failed'; exit 1; }
 #RUN	cd discrete-noise-analysis && chmod +x git_pull.sh
 
-RUN pip install --no-cache-dir -r db_manager/requirements.txt
+RUN pip install --no-cache-dir -r discrete-noise-analysis/requirements.txt
 COPY core/.env /noise/discrete-noise-analysis/core
 
 WORKDIR /noise/discrete-noise-analysis
