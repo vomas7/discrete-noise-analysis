@@ -117,8 +117,8 @@ def noise_maker(count_streets_update: int):
             'primary_link', 'secondary', 'secondary_link', 'tertiary', 
             'tertiary_link', 'unclassified', 'residential') 
             AND finished is not True ORDER BY id ASC LIMIT 1'''
-            ).iloc[0]
-        street = streets.iloc[0]
+            )
+        street = streets.iloc[[0]].squeeze()
         buildings = gpd.read_postgis(
             con=engine,
             crs=base_crs,
@@ -143,4 +143,4 @@ def noise_maker(count_streets_update: int):
 
 
 if __name__ == '__main__':
-    noise_maker(100)
+    noise_maker(1)
