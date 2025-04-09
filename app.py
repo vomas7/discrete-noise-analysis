@@ -1,4 +1,4 @@
-from main import noise_maker
+from core.main_noise_creator import noise_maker
 from fastapi import HTTPException
 from app_settings import create_app
 from fastapi.middleware.cors import CORSMiddleware

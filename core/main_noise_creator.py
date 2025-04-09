@@ -75,34 +75,30 @@ def create_noise(streets: gpd.GeoDataFrame, buildings: gpd.GeoDataFrame):
     building_segments = polygons_to_segments(intersect_buildings)
     building_segments = segmentation_of_barrier_by_floors(building_segments)
 
-    noise_lines, barriers = make_noise_reflection(
+    noise_lines, noise_barriers = make_noise_reflection(
         noize=intersect_noise_lines,
         barriers=building_segments
     )
-    final_result = gpd.GeoDataFrame(
+    noise_lines = gpd.GeoDataFrame(
         pd.concat([non_intersect, noise_lines], ignore_index=True),
         crs=noise_stars.crs
     )
 
-    final_result.to_postgis(
-        name=noise_lines_table_name,
-        schema=schema,
-        con=engine,
-        if_exists='append',
-        index=True,
-        dtype={geometry_column: f'GEOMETRY(LINESTRING, {base_crs})'}
-    )
-    barriers.to_postgis(
-        name=barrier_noise_table_name,
-        schema=schema,
-        con=engine,
-        if_exists='append',
-        index=True,
-        dtype={geometry_column: f'GEOMETRY(LINESTRING, {base_crs})'}
-    )
     end_time = time.time()
     execution_time = end_time - start_time
     print(f"Время выполнения: {execution_time} секунд")
+    return noise_lines, noise_barriers
+
+
+def save_to_postgis(gdf: gpd.GeoDataFrame, name):
+    gdf.to_postgis(
+        name=name,
+        schema=schema,
+        con=engine,
+        if_exists='append',
+        index=True,
+        dtype={geometry_column: f'GEOMETRY(LINESTRING, {base_crs})'}
+    )
 
 
 def noise_maker(count_streets_update: int):
@@ -133,7 +129,9 @@ def noise_maker(count_streets_update: int):
             crs=streets.crs,
             geometry=geometry_column)
 
-        create_noise(street, buildings)
+        noise_lines, noise_barrier = create_noise(street, buildings)
+        save_to_postgis(noise_lines, noise_lines_table_name)
+        save_to_postgis(noise_barrier, barrier_noise_table_name)
         mark_a_street_as_processed(street_id)
         delete_duplicates_barriers()
         print('-----------------------------------')
@@ -143,4 +141,4 @@ def noise_maker(count_streets_update: int):
 
 
 if __name__ == '__main__':
-    noise_maker(1)
+    noise_maker(100)
