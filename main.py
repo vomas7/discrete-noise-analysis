@@ -106,23 +106,25 @@ def create_noise(streets: gpd.GeoDataFrame, buildings: gpd.GeoDataFrame):
 
 
 def noise_maker(count_streets_update: int):
-    streets = gpd.read_postgis(
-        con=engine,
-        crs=base_crs,
-        geom_col=geometry_column,
-        sql=f'''SELECT * FROM {schema}.{street_table_name} WHERE "highway" IN 
-        ('living_street', 'trunk', 'trunk_link', 'primary', 'primary_link', 
-        'secondary', 'secondary_link', 'tertiary', 'tertiary_link', 
-        'unclassified', 'residential') AND finished is not True'''
-        )
-    buildings = gpd.read_postgis(
-        con=engine,
-        crs=base_crs,
-        geom_col=geometry_column,
-        sql=f'SELECT * FROM {schema}.{building_table_name}'
-        )
     i = 0
-    for _, street in streets.iterrows():
+    while i != count_streets_update:
+        streets = gpd.read_postgis(
+            con=engine,
+            crs=base_crs,
+            geom_col=geometry_column,
+            sql=f'''SELECT * FROM {schema}.{street_table_name} WHERE "highway" 
+            IN ('living_street', 'trunk', 'trunk_link', 'primary', 
+            'primary_link', 'secondary', 'secondary_link', 'tertiary', 
+            'tertiary_link', 'unclassified', 'residential') 
+            AND finished is not True ORDER BY id ASC LIMIT 1'''
+            ).iloc[0]
+        street = streets.iloc[0]
+        buildings = gpd.read_postgis(
+            con=engine,
+            crs=base_crs,
+            geom_col=geometry_column,
+            sql=f'SELECT * FROM {schema}.{building_table_name}'
+            )
         print('-----------------------------------')
         street_id = int(street['id'])
         print(street['name'], street_id)
@@ -137,9 +139,8 @@ def noise_maker(count_streets_update: int):
         print('-----------------------------------')
         i += 1
         print(f'готово {i} из {count_streets_update}')
-        if i == count_streets_update:
-            break
     print('готово')
 
+
 if __name__ == '__main__':
-    noise_maker(1)
+    noise_maker(100)
