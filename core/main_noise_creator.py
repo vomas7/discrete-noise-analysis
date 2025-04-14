@@ -31,6 +31,8 @@ from config import (
 def create_noise(streets: gpd.GeoDataFrame, buildings: gpd.GeoDataFrame):
     start_time = time.time()
 
+    building_max_level = buildings[building_level_column].max()
+
     noise_stars = make_noise_stars(
         street_layer=streets,
         stars_line_step=stars_line_step,
@@ -38,7 +40,6 @@ def create_noise(streets: gpd.GeoDataFrame, buildings: gpd.GeoDataFrame):
         point_interval=point_interval
     )
 
-    building_max_level = buildings[building_level_column].max()
 
     noise_stars = noise_stars[noise_stars[noise_level_column] /
                               3 <= building_max_level]
@@ -130,6 +131,11 @@ def noise_maker(count_streets_update: int):
             geometry=geometry_column)
 
         noise_lines, noise_barrier = create_noise(street, buildings)
+        noise_lines = gpd.GeoDataFrame(
+            noise_lines[['level', 'angle', 'start_noise']],
+            geometry=noise_lines.geometry,
+            crs=noise_lines.crs
+        )
         save_to_postgis(noise_lines, noise_lines_table_name)
         save_to_postgis(noise_barrier, barrier_noise_table_name)
         mark_a_street_as_processed(street_id)
